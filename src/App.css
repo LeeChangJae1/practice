@@ -115,6 +115,10 @@ span {
   background-color: navy;
 }
 
+#crawl .results .list .district.SEOCHOGU {
+  background-color: brown;
+}
+
 #crawl .option {
   margin-top: 16px;
   text-align: center;

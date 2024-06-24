@@ -7,49 +7,79 @@ const cors = require("cors");
 const app = express();
 const PORT = 9000;
 
-const DOMAIN_URL = { SEONGNAM: "https://eminwon.seongnam.go.kr/emwp" };
-
 const DISTRICT = {
-  JUNGGU: [
-    "중구",
-    "https://www.junggu.seoul.kr",
-    "/content.do?cmsid=14232&page=1",
-    "&searchField=all&searchValue=",
-  ],
-  JONGROGU: [
-    "종로구",
-    "https://www.jongno.go.kr",
-    "/portal/bbs/selectBoardList.do?bbsId=BBSMSTR_000000000271&menuId=1756&menuNo=1756&pageIndex=1",
-    "&searchCnd=1&searchWrd=",
-  ],
-  GANGNAMGU: [
-    "강남구",
-    "https://www.gangnam.go.kr",
-    "/notice/list.do?mid=ID05_040201&pgno=1",
-    "&keyfield=BNI_MAIN_CONT&keyword=",
-  ],
-  YONGSANGU: [
-    "용산구",
-    "https://www.yongsan.go.kr",
-    "/portal/bbs/B0000095/list.do?menuNo=200233",
-    "&searchCnd=3&searchWrd=",
-  ],
-  BUNDANGGU: [
-    "분당구",
-    "",
-    `${DOMAIN_URL.SEONGNAM}/gov/mogaha/ntis/web/ofr/action/OfrAction.do?jndinm=OfrNotAncmtEJB&context=NTIS&subCheck=Y&epcCheck=Y&cgg_code=3810000&method=selectListOfrNotAncmt&methodnm=selectListOfrNotAncmtHomepage`,
-    "&Key=B_Content&not_ancmt_cn=",
-  ],
+  JUNGGU: {
+    NAME: "중구",
+    URL: [
+      "https://www.junggu.seoul.kr",
+      "/content.do?cmsid=14232",
+      "&searchField=all&searchValue=",
+    ],
+  },
+  JONGROGU: {
+    NAME: "종로구",
+    URL: [
+      "https://www.jongno.go.kr",
+      "/portal/bbs/selectBoardList.do?bbsId=BBSMSTR_000000000271&menuId=1756&menuNo=1756",
+      "&searchCnd=1&searchWrd=",
+    ],
+  },
+  GANGNAMGU: {
+    NAME: "강남구",
+    URL: [
+      "https://www.gangnam.go.kr",
+      "/notice/list.do?mid=ID05_040201",
+      "&keyfield=BNI_MAIN_CONT&keyword=",
+    ],
+  },
+  YONGSANGU: {
+    NAME: "용산구",
+    URL: [
+      "https://www.yongsan.go.kr",
+      "/portal/bbs/B0000095/list.do?menuNo=200233",
+      "&searchCnd=3&searchWrd=",
+    ],
+  },
+  YEONGDEUNGPOGU: {
+    NAME: "영등포구",
+    URL: [
+      "https://www.ydp.go.kr",
+      "/www/selectEminwonList.do?key=2851&menuFlag=01",
+      "&searchCnd=B_Content&searchKrwd=",
+    ],
+  },
+  BUNDANGGU: { NAME: "분당구" },
+  SEOCHOGU: { NAME: "서초구" },
+};
+
+const CREAT_EMINWON_DOMAIN = (n) => `https://eminwon.${n}.go.kr`;
+const EMINWON_NOTICE_URL =
+  "/emwp/gov/mogaha/ntis/web/ofr/action/OfrAction.do?jndinm=OfrNotAncmtEJB&context=NTIS&subCheck=Y&epcCheck=Y";
+const EMINWON = {
+  URL: {
+    LIST: `${EMINWON_NOTICE_URL}&method=selectListOfrNotAncmt&methodnm=selectListOfrNotAncmtHomepage&ofr_pageSize=30`,
+    CGG_CODE: "&cgg_code=",
+    SEARCH: "&Key=B_Content&not_ancmt_cn=",
+    VIEW: `${EMINWON_NOTICE_URL}&method=selectOfrNotAncmt&methodnm=selectOfrNotAncmtRegst&not_ancmt_mgt_no=`,
+    FILE: "/emwp/jsp/ofr/FileDown.jsp",
+  },
+  DISTRICT: {
+    BUNDANGGU: ["seongnam", 3810000],
+    SEOCHOGU: ["seocho"],
+  },
 };
 
 axiosRetry(axios, {
   retries: 5,
   retryDelay: (retryCount) => retryCount * 2000,
   retryCondition: (error) => {
-    console.log(
-      `### ERROR RETRY ATTEMPT[${error?.config?.["axios-retry"]?.retryCount}] ###`,
-      error?.config?.url
-    );
+    const retryCount = error?.config?.["axios-retry"]?.retryCount;
+    if (typeof retryCount === "number") {
+      console.log(
+        `### ERROR RETRY ATTEMPT[${retryCount + 1}] ###`,
+        error?.config?.url
+      );
+    }
     return true;
   },
 });
@@ -66,38 +96,66 @@ app.get("/api", async ({ query }, res) => {
     const errorUrls = [];
     const results = await Promise.all(
       Object.entries(DISTRICT)
-        .filter(([key]) => !districts || districts.includes(key))
-        .flatMap(([key, [district, domain, listPath, searchPath]]) =>
-          keywords.map((k) => ({
-            key,
-            district,
+        .filter(([KEY]) => !districts || districts.includes(KEY))
+        .flatMap(([KEY, v]) => {
+          const [eminDomainName, eminCggCode] = EMINWON.DISTRICT[KEY] || [
+            "",
+            "",
+          ];
+          const eminCggQueryParamUrl = eminCggCode
+            ? `${EMINWON.URL.CGG_CODE}${eminCggCode}`
+            : "";
+
+          const [domain, listPath, searchPath] =
+            v?.URL ||
+            (eminDomainName
+              ? [
+                  CREAT_EMINWON_DOMAIN(eminDomainName),
+                  `${EMINWON.URL.LIST}${eminCggQueryParamUrl}`,
+                  EMINWON.URL.SEARCH,
+                ]
+              : ["", "", ""]);
+
+          return keywords.map((k) => ({
+            KEY,
+            districtName: v.NAME,
             domain,
             crawlUrl: `${domain}${listPath}${k ? `${searchPath}${k}` : ""}`,
-          }))
-        )
-        .map(async ({ key, district, domain, crawlUrl }) => {
-          try {
-            console.log(`[${key}] "${crawlUrl}" CRAWLING...`);
-            const $ = await crawlCheerio(crawlUrl);
-            const { crawlDatas, errors } = await crawlByDistrict(
-              $,
-              key,
-              district,
-              domain
-            );
-
-            if (errors.length > 0) {
-              errors.forEach((err) => {
-                errorUrls.push(err);
-              });
-            }
-
-            return crawlDatas;
-          } catch (err) {
-            console.log("crawl error", err);
-            errorUrls.push(crawlUrl);
-          }
+            eminCggQueryParamUrl,
+          }));
         })
+        .map(
+          async ({
+            KEY,
+            districtName,
+            domain,
+            crawlUrl,
+            eminCggQueryParamUrl,
+          }) => {
+            try {
+              console.log(`[${KEY}] "${crawlUrl}" CRAWLING...`);
+              const $ = await crawlCheerio(crawlUrl);
+              const { crawlDatas, errors } = await crawlByDistrict(
+                $,
+                KEY,
+                districtName,
+                domain,
+                eminCggQueryParamUrl
+              );
+
+              if (errors.length > 0) {
+                errors.forEach((err) => {
+                  errorUrls.push(err);
+                });
+              }
+
+              return crawlDatas;
+            } catch (err) {
+              console.log("crawl error", err);
+              errorUrls.push(crawlUrl);
+            }
+          }
+        )
     );
 
     const seen = new Set();
@@ -111,7 +169,6 @@ app.get("/api", async ({ query }, res) => {
     });
   } catch (error) {
     console.error("Crawling error:", error);
-    // res.status(500).send("CRAWLING ERROR");
   }
 });
 
@@ -122,12 +179,17 @@ const crawlCheerio = async (url) => {
     return cheerio.load(data);
   } catch (error) {
     console.error(`Cheerio error [URL:${url}]:`, error);
-    // throw error;
   }
 };
 
-const crawlByDistrict = async ($, key, district, domain) => {
-  const [crawlDatas, errors] = [[], []];
+const crawlByDistrict = async (
+  $,
+  key,
+  districtName,
+  domain,
+  eminCggQueryParamUrl
+) => {
+  let [crawlDatas, errors, eminTableCheerioSelector] = [[], [], ""];
 
   switch (key) {
     case "JUNGGU":
@@ -158,7 +220,7 @@ const crawlByDistrict = async ($, key, district, domain) => {
         try {
           crawlDatas.push({
             _id: `${key}-${cid}`,
-            district,
+            districtName,
             title,
             link,
             startDate,
@@ -190,6 +252,8 @@ const crawlByDistrict = async ($, key, district, domain) => {
 
           try {
             const $$ = await crawlCheerio(link);
+            if (typeof $$ !== "function") return;
+
             $$(".board_view > table > tbody > tr > .first > p > a").each(
               (_, e) => {
                 files.push({
@@ -201,7 +265,7 @@ const crawlByDistrict = async ($, key, district, domain) => {
 
             crawlDatas.push({
               _id: `${key}-${nttId}`,
-              district,
+              districtName,
               title,
               link,
               department,
@@ -238,6 +302,8 @@ const crawlByDistrict = async ($, key, district, domain) => {
 
           try {
             const $$ = await crawlCheerio(link);
+            if (typeof $$ !== "function") return;
+
             $$("#fileListCollap a").each((_, e) => {
               files.push({
                 url: $$(e).attr("href"),
@@ -247,7 +313,7 @@ const crawlByDistrict = async ($, key, district, domain) => {
 
             crawlDatas.push({
               _id: `${key}-${not_ancmt_mgt_no}`,
-              district,
+              districtName,
               title,
               link,
               department,
@@ -281,6 +347,8 @@ const crawlByDistrict = async ($, key, district, domain) => {
 
           try {
             const $$ = await crawlCheerio(link);
+            if (typeof $$ !== "function") return;
+
             $$(".file-list .file").each((_, e) => {
               files.push({
                 url: `${domain}${$$(e).attr("href")}`,
@@ -290,7 +358,7 @@ const crawlByDistrict = async ($, key, district, domain) => {
 
             crawlDatas.push({
               _id: `${key}-${nttId}`,
-              district,
+              districtName,
               title,
               link,
               department,
@@ -306,51 +374,99 @@ const crawlByDistrict = async ($, key, district, domain) => {
       break;
 
     case "BUNDANGGU":
-      await Promise.all(
-        $(".tblWrap > table > tbody > tr").map(async (_, el) => {
-          const files = [];
-          const t = $(el).find(".title > a");
+      eminTableCheerioSelector = ".tblWrap > table > tbody > tr";
+      break;
 
-          const not_ancmt_mgt_no = t.attr("onclick")?.split("'")?.[1];
-          if (!not_ancmt_mgt_no) return;
+    case "SEOCHOGU":
+      eminTableCheerioSelector = ".board > .list > tbody > tr";
+      break;
+  }
 
-          const [link, title, department, startDate, endDate] = [
-            `${DOMAIN_URL.SEONGNAM}/gov/mogaha/ntis/web/ofr/action/OfrAction.do?jndinm=OfrNotAncmtEJB&context=NTIS&subCheck=Y&epcCheck=Y&cgg_code=3810000&method=selectOfrNotAncmt&methodnm=selectOfrNotAncmtRegst&not_ancmt_mgt_no=${not_ancmt_mgt_no}`,
-            t.text().trim(),
-            $(el).find("td:nth-of-type(4)").text().trim(),
-            $(el).find("td:nth-of-type(5)").text().trim(),
-            $(el).find("td:nth-of-type(6)").text()?.split("~")?.[1]?.trim(),
-          ];
+  if (eminTableCheerioSelector) {
+    await Promise.all(
+      $(eminTableCheerioSelector).map(async (_, el) => {
+        let [
+          not_ancmt_mgt_no,
+          title,
+          department,
+          startDate,
+          endDate,
+          files,
+          eminTrFilesSelector,
+        ] = ["", "", "", "", "", [], ""];
 
-          try {
-            const $$ = await crawlCheerio(link);
-            $$("tr:nth-of-type(4) > .bd01td > a").each((_, e) => {
+        switch (key) {
+          case "BUNDANGGU":
+            not_ancmt_mgt_no = $(el)
+              .find(".title > a")
+              .attr("onclick")
+              ?.split("'")?.[1];
+            department = $(el).find("td:nth-of-type(4)").text().trim();
+            startDate = $(el).find("td:nth-of-type(5)").text().trim();
+            endDate = $(el)
+              .find("td:nth-of-type(6)")
+              .text()
+              ?.split("~")?.[1]
+              ?.trim();
+            eminTrFilesSelector = "tr:nth-of-type(4) > .bd01td > a";
+            break;
+
+          case "SEOCHOGU":
+            not_ancmt_mgt_no = $(el)
+              .find("td.left > a")
+              .attr("onclick")
+              ?.split("'")?.[1];
+            title = $(el).find("td:nth-of-type(3) > a").text().trim();
+            department = $(el).find("td:nth-of-type(4)").text().trim();
+            startDate = $(el).find("td:nth-of-type(5)").text().trim();
+            endDate = $(el)
+              .find("td:nth-of-type(6)")
+              .text()
+              ?.split("~")?.[1]
+              ?.trim();
+            eminTrFilesSelector = "tr:last-child > td > p > a";
+            break;
+        }
+
+        if (!not_ancmt_mgt_no) return;
+        const link = `${domain}${EMINWON.URL.VIEW}${not_ancmt_mgt_no}${eminCggQueryParamUrl}`;
+
+        try {
+          const $$ = await crawlCheerio(link);
+          if (typeof $$ !== "function") return;
+
+          if (eminTrFilesSelector) {
+            $$(eminTrFilesSelector).each((_, e) => {
               const f = $$(e).attr("href")?.split("'");
               if (f?.length > 0) {
                 files.push({
-                  url: `${DOMAIN_URL.SEONGNAM}/jsp/ofr/FileDown.jsp?user_file_nm=${f[1]}&sys_file_nm=${f[3]}&file_path=${f[5]}`,
+                  url: `${domain}${EMINWON.URL.FILE}?user_file_nm=${f[1]}&sys_file_nm=${f[3]}&file_path=${f[5]}`,
                   name: f[1],
                 });
               }
             });
-
-            crawlDatas.push({
-              _id: `${key}-${not_ancmt_mgt_no}`,
-              district,
-              title,
-              link,
-              department,
-              startDate,
-              endDate,
-              files,
-            });
-          } catch (err) {
-            errors.push(link);
-            console.log(`${key} error`, err);
           }
-        })
-      );
-      break;
+
+          if (key === "BUNDANGGU") {
+            title = $$(".listx").text();
+          }
+
+          crawlDatas.push({
+            _id: `${key}-${not_ancmt_mgt_no}`,
+            districtName,
+            title,
+            link,
+            department,
+            startDate,
+            endDate,
+            files,
+          });
+        } catch (err) {
+          errors.push(link);
+          console.log(`${key} error`, err);
+        }
+      })
+    );
   }
 
   return { crawlDatas, errors };

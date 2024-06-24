@@ -3,7 +3,7 @@ import axios from "axios";
 
 interface IData {
   _id: string;
-  district: string;
+  districtName: string;
   department?: string;
   title: string;
   link?: string;
@@ -63,7 +63,7 @@ const CRAWL: React.FC = () => {
     if (responseData) {
       setResultTitle(
         `[지역: ${districts ? districts.join(", ") : "전체"}] & [키워드: ${
-          keywords || customKeyword
+          (keywords && keywords?.length > 0) || customKeyword
             ? [
                 ...(keywords || []),
                 ...(customKeyword ? [customKeyword] : []),
@@ -87,6 +87,7 @@ const CRAWL: React.FC = () => {
             { key: "JONGROGU", label: "종로구" },
             { key: "GANGNAMGU", label: "강남구" },
             { key: "YONGSANGU", label: "용산구" },
+            { key: "SEOCHOGU", label: "서초구" },
             { key: "BUNDANGGU", label: "분당구" },
           ].map(({ key, label }) => {
             const checked =
@@ -191,13 +192,17 @@ const CRAWL: React.FC = () => {
                   .sort(
                     (a, b) =>
                       (b.startDate ? new Date(b.startDate).getTime() : -1) -
-                      (a.startDate ? new Date(a.startDate).getTime() : -1)
+                        (a.startDate ? new Date(a.startDate).getTime() : -1) ||
+                      (a.endDate && b.endDate
+                        ? (a.endDate ? new Date(a.endDate).getTime() : -1) -
+                          (b.endDate ? new Date(b.endDate).getTime() : -1)
+                        : -1)
                   )
                   .map((item) => (
                     <li key={item._id}>
                       <p className="title">
                         <span className={`district ${item._id.split("-")[0]}`}>
-                          {item.district}
+                          {item.districtName}
                           {item.department ? (
                             <span>{item.department}</span>
                           ) : null}
